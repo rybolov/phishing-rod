@@ -1,10 +1,10 @@
 #!/bin/python3
-#Starting with zone files for TLDs, find typo-squatting and look-alike domains.
+# Starting with zone files for TLDs, find typo-squatting and look-alike domains.
 
 import argparse
 import logging
 import datetime
-import sys
+# import sys
 import os
 import re
 import gzip
@@ -12,15 +12,18 @@ from fuzzywuzzy import fuzz
 
 # Todo: Add versioning to only check new domains.  This will speed up the process a lot.
 # Todo: More command flags.
+# Todo: more typo techniques.
 
-print("        _     _     _     _                                 _ ")
-print("  _ __ | |__ (_)___| |__ (_)_ __   __ _       _ __ ___   __| | ")
-print(" | '_ \| '_ \| / __| '_ \| | '_ \ / _` |_____| '__/ _ \ / _` | ")
-print(" | |_) | | | | \__ \ | | | | | | | (_| |_____| | | (_) | (_| | ")
-print(" | .__/|_| |_|_|___/_| |_|_|_| |_|\__, |     |_|  \___/ \__,_| ")
-print(" |_|                              |___/                        ")
-print("\nRun with --help to see all available options.")
-print("Credits: @douglasmun, @rybolov\n")
+print('''
+        _     _     _     _                                 _
+  _ __ | |__ (_)___| |__ (_)_ __   __ _       _ __ ___   __| |
+ | '_ \| '_ \| / __| '_ \| | '_ \ / _` |_____| '__/ _ \ / _` |
+ | |_) | | | | \__ \ | | | | | | | (_| |_____| | | (_) | (_| |
+ | .__/|_| |_|_|___/_| |_|_|_| |_|\__, |     |_|  \___/ \__,_|
+ |_|                              |___/                       
+Run with --help to see all available options.
+Credits: @douglasmun, @rybolov
+''')
 
 # Set some globals
 logging.basicConfig(filename='log', filemode='a', format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
@@ -34,7 +37,8 @@ def valid_file(filename):
     if not os.path.isfile(filename):
         raise argparse.ArgumentTypeError("Not a valid file.")
     else:
-        return(filename)
+        return filename
+
 
 def valid_directory(directory):
     print("Testing if", directory, "is a directory.")
@@ -42,26 +46,32 @@ def valid_directory(directory):
     if not os.path.isdir(directory):
         raise argparse.ArgumentTypeError("Not a valid directory.")
     else:
-        return(directory)
+        return directory
+
 
 def valid_percentage(percentage):
     print("Testing if", percentage, "is a percentage.")
     percentage = int(percentage)
     if 0 < percentage < 100:
-        return(percentage)
+        return percentage
     else:
         raise argparse.ArgumentTypeError("Not a valid percentage.")
 
 
 parser = argparse.ArgumentParser(description='Search zone files for watch domains and trademarks.')
-parser.add_argument('--directory', '-d', '--fromdirectory', '--dir', type=valid_directory, help='Read bulk zone files from a directory. (default: ./zonefiles)')
+parser.add_argument('--directory', '-d', '--fromdirectory', '--dir', type=valid_directory,
+                    help='Read bulk zone files from a directory. (default: ./zonefiles)')
 parser.add_argument('--outputfile', '-o', help='Destination file for bad domains. (default: ./baddomains.txt)')
-parser.add_argument('--accuracy', '-a', '--minimumscore', '--matchlevel', type=valid_percentage, help='Threshold for a match. (default: 90)')
+parser.add_argument('--accuracy', '-a', '--minimumscore', '--matchlevel', type=valid_percentage,
+                    help='Threshold for a match. (default: 90)')
 parser.add_argument('--dev', action="store_true", help='Development mode.  Turn on verbose logging. (default: none)')
+parser.add_argument('--nodiff', action="store_true", help='Ignore the difference from previous version of zone files \
+                    and test all domains in the new zone files.  This will make the test run faster. (default: none)')
 args = parser.parse_args()
 
 if args.dev:
-    logging.basicConfig(filename='log', filemode='a', format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    logging.basicConfig(filename='log', filemode='a', format='%(asctime)s %(levelname)s: %(message)s',
+                        level=logging.INFO)
     stderrLogger = logging.StreamHandler()
     stderrLogger.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
     logging.getLogger().addHandler(stderrLogger)
@@ -71,7 +81,7 @@ logging.info('************Starting a new run.************')
 if args.directory:
     zonefiledirectory = args.directory
 else:
-    zonefiledirectory = os.path.join( os.getcwd(), "zonefiles")
+    zonefiledirectory = os.path.join(os.getcwd(), "zonefiles")
 
 if args.accuracy:
     accuracy = args.accuracy
@@ -82,6 +92,7 @@ if args.outputfile:
     outputfile = args.outputfile
 else:
     outputfile = os.path.join(os.getcwd(), "baddomains.txt")
+
 
 def main():
     searchphrases = []
@@ -96,11 +107,11 @@ def main():
         with open(domainsandtrademarks, 'r') as f:
             for line in f:
                 if '#' not in line:
-                    if line.strip() : # If line is not empty
-                        line = line.strip() # remove leading and trailing spaces
-                        line = ''.join(line.split()) # remove all whitespace inside the line
-                        line = line.lower() # take everything to lower-case
-                        line = line.encode('ascii',errors='ignore').decode() # remove non-ascii characters
+                    if line.strip():  # If line is not empty
+                        line = line.strip()  # remove leading and trailing spaces
+                        line = ''.join(line.split())  # remove all whitespace inside the line
+                        line = line.lower()  # take everything to lower-case
+                        line = line.encode('ascii', errors='ignore').decode()  # remove non-ascii characters
                         searchphrases.append(line)
                         searchphrases.append(getleets(line))
                         searchphrases.append(getitolswap(line))
@@ -130,10 +141,10 @@ def main():
                 linearray = line.split()
                 # Regex is to check for the tld in the first field. It has only one phrase with a trailing dot.
                 # last check is to make sure that we're not checking the same domain as the previous line.
-                if not re.search('^[a-z]*\.$]', linearray[0]) and linearray[0] != lastdomain and linearray[2] == "in" and linearray[3] == "ns":
+                if not re.search('^[a-z]*\.$', linearray[0]) and linearray[0] != lastdomain and linearray[2] == "in" \
+                        and linearray[3] == "ns":
                     lastdomain = linearray[0]
                     for searchword in searchphrases:
-                        domain = linearray[0].split('.')
                         if fuzz.partial_ratio(searchword, linearray[0]) > accuracy:
                             linearray[0] = linearray[0].rstrip('.')
                             print(linearray[0])
@@ -142,29 +153,39 @@ def main():
 
     totaltime = int(datetime.datetime.now().timestamp()) - exec_start_time
     totaldomains = len(matchdomains)
-    print("Done with zone files.  We processed", totalrows, "rows and found", totaldomains, "matches.")
-    print("Total Time was", str(datetime.timedelta(seconds=totaltime)))
+
+    print(f'Done with zone files.  We processed {totalrows} rows and found {totaldomains} matches.')
+    logging.info(f'Done with zone files.  We processed {totalrows} rows and found {totaldomains} matches.')
+    print(f'Total Time was {str(datetime.timedelta(seconds=totaltime))}.')
+    logging.info(f'Total Time was {str(datetime.timedelta(seconds=totaltime))}.')
     logging.info('************Ending run.************')
+
 
 def writeoutput(writedomains):
     with open(outputfile, 'w') as outfile:
-        #for row in writedomains:
+        # for row in writedomains:
         outfile.write("\n".join(map(str, writedomains)))
-        outfile.write("\n") # Last line needs a line terminator. =)
+        outfile.write("\n")  # Last line needs a line terminator. =)
+        print(f'Wrote output file {outputfile}.')
+        logging.info(f'Wrote output file {outputfile}.')
+
 
 def getleets(text):
     getchar = lambda c: chars[c] if c in chars else c
     chars = {"a": "4", "e": "3", "l": "1", "o": "0", "s": "5"}
     return ''.join(getchar(c) for c in text)
 
+
 def getitolswap(text):
     getchar = lambda c: chars[c] if c in chars else c
     chars = {"i": "l"}
     return ''.join(getchar(c) for c in text)
 
+
 def getmissingdotwww(text):
     text = "www" + text
     return text
+
 
 if __name__ == '__main__':
     main()
