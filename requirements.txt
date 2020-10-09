@@ -1,0 +1,2 @@
+setuptools~=45.2.0
+fuzzywuzzy~=0.18.0

@@ -1,0 +1,13 @@
+#Add in domains and trademarks that you want to search for.
+#You don't need a TLD like .com or .info for domains.
+#How I Treat This Data:
+#   Ignore empty and commented lines
+#   Clip beginning and trailing spaces
+#   Remove internal whitespace
+#   Remove non-ASCII characters
+#   Make all characters lower-case
+viagra
+Tesla
+cialis
+paypal
+Donald Trump
