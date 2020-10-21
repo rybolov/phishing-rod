@@ -88,8 +88,9 @@ parser.add_argument('--cpu', '-c', type=valid_cpu,
                     help='Number of CPUs to keep in reserve for parallel processing. (default: 2)')
 parser.add_argument('--dev', action="store_true", help='Development mode.  Turn on verbose logging. (default: none)')
 parser.add_argument('--nodiff', action="store_true", help='Ignore the difference from previous version of zone files \
-                    and test all domains in the new zone files.  This will make the test run way slower. \
+                    and test all domains in the new zone files.  This will make the search run way slower. \
                     (default: none)')
+parser.add_argument('--insane', action="store_true", help='Insane mode.  Turn on all of the name permutations. (default: none)')
 args = parser.parse_args()
 
 if args.dev:
@@ -132,6 +133,7 @@ logging.info(f'Using {usecpus} CPUs.')
 
 def main():
     global matchdomains
+    global searchphrases
     if not os.path.isfile(domainsandtrademarks):
         logging.error(f'No domains and trademarks file.  I tried:{domainsandtrademarks}.  Critical error.')
         print(f'No domains and trademarks file.  I tried:{domainsandtrademarks}.  Critical error.')
@@ -146,9 +148,32 @@ def main():
                         line = line.lower()  # take everything to lower-case
                         line = line.encode('ascii', errors='ignore').decode()  # remove non-ascii characters
                         searchphrases.append(line)
-                        searchphrases.append(getleets(line))
-                        searchphrases.append(getitolswap(line))
-                        searchphrases.append(getmissingdotwww(line))
+                        if args.insane:
+                            searchphrases.append(getleets(line))
+                            searchphrases.append(line.replace('a', '4'))
+                            searchphrases.append(line.replace('e', '3'))
+                            searchphrases.append(line.replace('i', '1'))
+                            searchphrases.append(line.replace('i', 'l'))
+                            searchphrases.append(line.replace('o', '0'))
+                            searchphrases.append(line.replace('s', '5'))
+                            searchphrases.append(line.replace('s', 'z'))
+                            searchphrases.append(line.replace('a', ''))
+                            searchphrases.append(line.replace('e', ''))
+                            searchphrases.append(line.replace('i', ''))
+                            searchphrases.append(line.replace('o', ''))
+                            searchphrases.append(line.replace('u', ''))
+                            searchphrases.append('www' + line)
+                            searchphrases.append(line + 'z')
+                            searchphrases.append(line + 'ie')
+                            searchphrases.append(line + 's')
+                            searchphrases.append(line + 'couk')
+                            searchphrases.append(line + '1')
+                            searchphrases.append(line + 'org')
+                            searchphrases.append(line + 'com')
+                            searchphrases.append(line + 'co')
+                            searchphrases.append(line + '-')
+    searchphrases = list(set(searchphrases))  # Remove duplicates by transforming to a set and then back to a list
+    searchphrases.sort()
     logging.info('Loaded Domains and Trademarks')
     logging.info(searchphrases)
 
@@ -159,12 +184,19 @@ def main():
         print('No zone files detected.  Shutting down.')
         print(zonefiledirectory)
         exit(666)
-    zonefiles.sort()
-    logging.info('Available zonefiles:')
-    logging.info(zonefiles)
+    for file in zonefiles:
+        unzipfiles(file)
+    zonefiles = os.listdir(zonefiledirectory) # Running a second time in case we unzipped anything.
+    textfiles = []
+    for file in zonefiles:
+        if re.search('\.txt$', file):
+            textfiles.append(file)
+    textfiles.sort()
+    logging.info('Available total zone files:')
+    logging.info(textfiles)
 
     Parallel(n_jobs=usecpus)(
-        delayed(checkzonefile)(file) for file in zonefiles)  # This is where we read the file and check for matches.
+        delayed(checkzonefile)(file) for file in textfiles)  # This is where we read the file and check for matches.
 
     matchdomains = list(set(matchdomains))  # Remove duplicates by transforming to a set and then back to a list
     matchdomains.sort()
@@ -183,8 +215,29 @@ def main():
     logging.info('************Ending run.************')
 
 
-def unzipfiles():
-    abcd = 1
+def unzipfiles(filename):
+    if not re.search('\.txt\.gz$', filename):
+        return
+    filewithpath = os.path.join(zonefiledirectory, filename)
+    unzipfilewithpath = filewithpath.rstrip('.gz')
+    difffilewithpath = unzipfilewithpath.rstrip(".txt") + '.diff'
+    # oldunzipfile =
+    print(f'Checking {filewithpath} to see if we have an unzipped version')
+    ziptime = os.path.getmtime(filewithpath)
+    if os.path.isfile(unzipfilewithpath):
+        print(f'Has an unzipped version')
+        if os.path.getmtime(unzipfilewithpath) > os.path.getmtime(filewithpath):
+            print(f'Unzipped version of {filewithpath} is newer, so we will leave it be.')
+        else:
+            print(f'Unzipped version of {filewithpath} is older, so we will overwrite it with a new file.')
+            os.system('touch -m %s' % (filewithpath))
+            os.system('gunzip -kf %s' % (filewithpath))
+            os.system(f'touch -m %s' % (unzipfilewithpath))
+    else:
+        print(f'No unzipped version of {filewithpath} so we will make that now.')
+        os.system(f'touch -m %s' % (filewithpath))
+        os.system(f'gunzip -kf %s' % (filewithpath))
+        os.system(f'touch -m %s' % (unzipfilewithpath))
 
 
 def checkzonefile(filename):
@@ -194,10 +247,10 @@ def checkzonefile(filename):
     global matchdomains
     if not re.search('\.txt$', filename):
         return
-    if re.search('^com', filename):
-        return
-    if re.search('^info', filename):
-        return
+    #if re.search('^com', filename):
+    #    return
+    #if re.search('^info', filename):
+    #    return
     filewithpath = os.path.join(zonefiledirectory, filename)
     logging.info(f'Reading {filewithpath}')
     print(f'Reading {filewithpath}')
@@ -232,17 +285,6 @@ def getleets(text):
     getchar = lambda c: chars[c] if c in chars else c
     chars = {"a": "4", "e": "3", "l": "1", "o": "0", "s": "5"}
     return ''.join(getchar(c) for c in text)
-
-
-def getitolswap(text):
-    getchar = lambda c: chars[c] if c in chars else c
-    chars = {"i": "l"}
-    return ''.join(getchar(c) for c in text)
-
-
-def getmissingdotwww(text):
-    text = "www" + text
-    return text
 
 
 if __name__ == '__main__':
