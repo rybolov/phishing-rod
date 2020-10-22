@@ -196,7 +196,7 @@ def main():
     logging.info(textfiles)
 
     Parallel(n_jobs=usecpus)(
-        delayed(checkzonefile)(file) for file in textfiles)  # This is where we read the file and check for matches.
+        delayed(checkzonefile)(file, searchphrase) for file in textfiles for searchphrase in searchphrases)  # This is where we read the file and check for matches.
 
     matchdomains = list(set(matchdomains))  # Remove duplicates by transforming to a set and then back to a list
     matchdomains.sort()
@@ -221,26 +221,26 @@ def unzipfiles(filename):
     filewithpath = os.path.join(zonefiledirectory, filename)
     unzipfilewithpath = filewithpath.rstrip('.gz')
     difffilewithpath = unzipfilewithpath.rstrip(".txt") + '.diff'
-    # oldunzipfile =
-    print(f'Checking {filewithpath} to see if we have an unzipped version')
+    oldunzipfile = os.path.join(zonefiledirectory, filename.rstrip('.gz'))
+    logging.info(f'Checking {filewithpath} to see if we have an unzipped version')
     ziptime = os.path.getmtime(filewithpath)
     if os.path.isfile(unzipfilewithpath):
-        print(f'Has an unzipped version')
+        logging.info(f'Has an unzipped version')
         if os.path.getmtime(unzipfilewithpath) > os.path.getmtime(filewithpath):
-            print(f'Unzipped version of {filewithpath} is newer, so we will leave it be.')
+            logging.info(f'Unzipped version of {filewithpath} is newer, so we will leave it be.')
         else:
-            print(f'Unzipped version of {filewithpath} is older, so we will overwrite it with a new file.')
+            logging.info(f'Unzipped version of {filewithpath} is older, so we will overwrite it with a new file.')
             os.system('touch -m %s' % (filewithpath))
             os.system('gunzip -kf %s' % (filewithpath))
             os.system(f'touch -m %s' % (unzipfilewithpath))
     else:
-        print(f'No unzipped version of {filewithpath} so we will make that now.')
+        logging.info(f'No unzipped version of {filewithpath} so we will make that now.')
         os.system(f'touch -m %s' % (filewithpath))
         os.system(f'gunzip -kf %s' % (filewithpath))
         os.system(f'touch -m %s' % (unzipfilewithpath))
 
 
-def checkzonefile(filename):
+def checkzonefile(filename, searchword):
     lastdomain = ""
     internalrows = 0
     global totalrows
@@ -252,8 +252,8 @@ def checkzonefile(filename):
     #if re.search('^info', filename):
     #    return
     filewithpath = os.path.join(zonefiledirectory, filename)
-    logging.info(f'Reading {filewithpath}')
-    print(f'Reading {filewithpath}')
+    logging.info(f'Searching {filewithpath} for {searchword}')
+    print(f'Searching {filewithpath} for {searchword}')
     with open(filewithpath, 'rt') as f:
         for line in f:
             internalrows += 1
@@ -263,10 +263,9 @@ def checkzonefile(filename):
             linearray[0] = linearray[0].rstrip('.')
             if not re.search('^[a-z]*\.$', linearray[0]) and linearray[0] is not lastdomain and linearray[2] == "in" \
                     and linearray[3] == "ns":
-                for searchword in searchphrases:
-                    if fuzz.partial_ratio(searchword, linearray[0]) > accuracy:
-                        print(linearray[0])
-                        matchdomains.append(linearray[0])
+                if fuzz.partial_ratio(searchword, linearray[0]) > accuracy:
+                    print(linearray[0])
+                    matchdomains.append(linearray[0])
             lastdomain = linearray[0]
     totalrows.append(int(internalrows))
     return
