@@ -4,6 +4,7 @@
 import argparse
 import logging
 import datetime
+import time
 # import sys
 import os
 import re
@@ -14,7 +15,6 @@ import multiprocessing
 
 # Todo: Add versioning to only check new domains.  This will speed up the process a lot.
 # Todo: More command flags.
-# Todo: more typo techniques.
 # Todo: Make writeoutput() read into an array and then sort it then overwrite the file with the new results.
 
 print('''
@@ -184,13 +184,25 @@ def main():
         print('No zone files detected.  Shutting down.')
         print(zonefiledirectory)
         exit(666)
-    for file in zonefiles:
-        unzipfiles(file)
-    zonefiles = os.listdir(zonefiledirectory) # Running a second time in case we unzipped anything.
+    Parallel(n_jobs=usecpus)(
+        delayed(unzipfiles)(file) for file in zonefiles)  # Parallel unzipping because gzip is single-threaded.
+
+    if not args.nodiff:
+        Parallel(n_jobs=usecpus)(
+            delayed(difffiles)(file) for file in zonefiles)  # Parallel diffing because diff is single-threaded.
+
+    zonefiles = os.listdir(zonefiledirectory) # Running a second time in case we unzipped or diff'ed anything.
     textfiles = []
     for file in zonefiles:
         if re.search('\.txt$', file):
-            textfiles.append(file)
+            if args.nodiff:
+                textfiles.append(file)
+            else:
+                if (file.rstrip('.txt') + ".diff") not in zonefiles:
+                    textfiles.append(file)
+                else:
+                    textfiles.append(file.rstrip('.txt') + ".diff")
+
     textfiles.sort()
     logging.info('Available total zone files:')
     logging.info(textfiles)
@@ -208,8 +220,10 @@ def main():
 
     totaldomains = len(matchdomains)
     totaltime = int(datetime.datetime.now().timestamp()) - exec_start_time
-    print(f'Done with zone files.  We processed {sum(totalrows)} rows and found {totaldomains} matches.')
-    logging.info(f'Done with zone files.  We processed {sum(totalrows)} rows and found {totaldomains} unique matches.')
+    print(f'Done with zone files.  We processed {sum(totalrows)} rows and \
+        found {sum(totalrows)/len(searchphrases)} matches.')
+    logging.info(f'Done with zone files.  We processed {sum(totalrows)/len(searchphrases)} rows \
+        and found {totaldomains} unique matches.')
     print(f'Total Time was {str(datetime.timedelta(seconds=totaltime))}.')
     logging.info(f'Total Time was {str(datetime.timedelta(seconds=totaltime))}.')
     logging.info('************Ending run.************')
@@ -220,32 +234,66 @@ def unzipfiles(filename):
         return
     filewithpath = os.path.join(zonefiledirectory, filename)
     unzipfilewithpath = filewithpath.rstrip('.gz')
-    difffilewithpath = unzipfilewithpath.rstrip(".txt") + '.diff'
-    oldunzipfile = os.path.join(zonefiledirectory, filename.rstrip('.gz'))
-    logging.info(f'Checking {filewithpath} to see if we have an unzipped version')
+    logging.info(f'Checking %s to see if we have an unzipped version', filewithpath)
     ziptime = os.path.getmtime(filewithpath)
     if os.path.isfile(unzipfilewithpath):
-        logging.info(f'Has an unzipped version')
+        logging.info('Has an unzipped version')
         if os.path.getmtime(unzipfilewithpath) > os.path.getmtime(filewithpath):
-            logging.info(f'Unzipped version of {filewithpath} is newer, so we will leave it be.')
+            logging.info(f'Unzipped version of %s is newer, so we will leave it be.', filewithpath)
         else:
-            logging.info(f'Unzipped version of {filewithpath} is older, so we will overwrite it with a new file.')
+            logging.info(f'Unzipped version of %s is older, so we will overwrite it with a new file.', filewithpath)
             os.system('touch -m %s' % (filewithpath))
             os.system('gunzip -kf %s' % (filewithpath))
+            time.sleep(5)
             os.system(f'touch -m %s' % (unzipfilewithpath))
     else:
-        logging.info(f'No unzipped version of {filewithpath} so we will make that now.')
+        logging.info(f'No unzipped version of %s so we will make that now.', filewithpath)
         os.system(f'touch -m %s' % (filewithpath))
         os.system(f'gunzip -kf %s' % (filewithpath))
+        time.sleep(5)
         os.system(f'touch -m %s' % (unzipfilewithpath))
 
+
+def difffiles(filename):
+    if not re.search('\.txt$', filename):
+        return
+    filewithpath = os.path.join(zonefiledirectory, filename)
+    oldfilewithpath = filewithpath + ".old"
+    difffilewithpath = filewithpath.rstrip(".txt") + '.diff'
+    print(f'Checking %s to see if we have an diff version' % filewithpath)
+    zonefiletime = os.path.getmtime(filewithpath)
+    if os.path.isfile(difffilewithpath):
+        logging.info('Has a diff file.')
+        if os.path.getmtime(difffilewithpath) > os.path.getmtime(filewithpath):
+            print(f'Diff version of %s is newer than the zone file, so we will leave it be.' % filewithpath)
+        else:
+            print(f'Diff version of %s is older than the zone file, so we will overwrite it with a new file.' % filewithpath)
+            os.system("diff -u %s %s | grep '^+[^+]' | sed 's/^+//' > %s" % (oldfilewithpath, filewithpath, difffilewithpath))
+            os.system(f'touch -m %s' % (difffilewithpath))
+    else:
+        if os.path.isfile(oldfilewithpath):
+            print(f'No diff version of %s so we will make that now as %s.' % (filewithpath,difffilewithpath))
+            # os.system('diff -u %s %s | grep \'^+[^+]\' | sed \'s/^+//\' > %s' % (oldfilewithpath, filewithpath, difffilewithpath))
+            os.system("diff -u %s %s | grep '^+[^+]' | sed 's/^+//' > %s" % (oldfilewithpath, filewithpath, difffilewithpath))
+            os.system('cp -u %s %s' % (filewithpath, oldfilewithpath))
+            os.system(f'touch -m %s' % (oldfilewithpath))
+            time.sleep(5)
+            os.system(f'touch -m %s' % (filewithpath))
+            time.sleep(5)
+            os.system(f'touch -m %s' % (difffilewithpath))
+        else:
+            print(f'No old version of %s so we can not make a diff file.  Copying current file to old file.' % filewithpath)
+            os.system('cp -u %s %s' % (filewithpath, oldfilewithpath))
+            os.system(f'touch -m %s' % (oldfilewithpath))
+            time.sleep(5)
+            os.system(f'touch -m %s' % (filewithpath))
 
 def checkzonefile(filename, searchword):
     lastdomain = ""
     internalrows = 0
     global totalrows
     global matchdomains
-    if not re.search('\.txt$', filename):
+    if not re.search('\.(txt|diff)$', filename):
         return
     #if re.search('^com', filename):
     #    return
