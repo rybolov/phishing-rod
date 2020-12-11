@@ -9,7 +9,8 @@ import datetime
 import os
 import re
 # import gzip
-from fuzzywuzzy import fuzz
+#from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz
 from joblib import Parallel, delayed
 import multiprocessing
 
@@ -88,12 +89,6 @@ parser.add_argument('--dev', action="store_true", help='Development mode.  Turn 
 parser.add_argument('--nodiff', action="store_true", help='Ignore the difference from previous version of zone files \
                     and test all domains in the new zone files.  This will make the search run way slower. \
                     (default: none)')
-parser.add_argument('--updatezones', action="store_true", help='Only compute diff files. \
-                    (default: none)')
-parser.add_argument('--onlydiff', action="store_true", help='Only compute diff files. \
-                    (default: none)')
-parser.add_argument('--onlyunzip', action="store_true", help='Only unzip files. \
-                    (default: none)')
 parser.add_argument('--insane', action="store_true", help='Insane mode.  Turn on all of the name \
                     permutations. (default: none)')
 args = parser.parse_args()
@@ -137,9 +132,6 @@ logging.info(f'Using {usecpus} CPUs.')
 
 
 def main():
-    if args.updatezones or args.onlydiff or args.onlyunzip:
-        makeupdates()
-        exit('0')
     global matchdomains
     global searchphrases
     if not os.path.isfile(domainsandtrademarks):
@@ -153,7 +145,7 @@ def main():
                     if line.strip():  # If line is not empty
                         line = line.strip()  # remove leading and trailing spaces
                         line = ''.join(line.split())  # remove all whitespace inside the line
-                        line = line.lower()  # take everything to lower-case
+                        line = line.lower()   # take everything to lower-case
                         line = line.encode('ascii', errors='ignore').decode()  # remove non-ascii characters
                         searchphrases.append(line)
                         if args.insane:
@@ -195,14 +187,15 @@ def main():
 
     textfiles = []
     for file in zonefiles:
-        if re.search('\.txt$', file):
-            if args.nodiff:
+        if not re.search('\.(diff\.split[a-z]{2,7}|txt\.split[a-z]{2,7}|txt|diff)$', file):
+            continue
+        elif re.search('^(app|biz|club|com|dev|icu|info|link|live|net|online|org|page|shop|site|store|top|vip|wang|work|xyz)\.(txt|diff)$', file):
+            continue
+        else:
+            if re.search('\.diff', file) and not args.nodiff:
                 textfiles.append(file)
-            else:
-                if (file.rstrip('.txt') + ".diff") not in zonefiles:
-                    textfiles.append(file)
-                else:
-                    textfiles.append(file.rstrip('.txt') + ".diff")
+            elif re.search('\.txt', file) and args.nodiff:
+                textfiles.append(file)
 
     textfiles.sort()
     logging.info('Available total zone files:')
@@ -210,7 +203,7 @@ def main():
 
     # This is where we read the file and check for matches.
     Parallel(n_jobs=usecpus)(
-        delayed(checkzonefile)(file, searchphrase) for file in textfiles for searchphrase in searchphrases)
+        delayed(checkzonefile)(file) for file in textfiles)
 
     matchdomains = list(set(matchdomains))  # Remove duplicates by transforming to a set and then back to a list
     matchdomains.sort()
@@ -231,83 +224,21 @@ def main():
     logging.info('************Ending run.************')
 
 
-def makeupdates():
-    zonefiles = os.listdir(zonefiledirectory)
-    if len(zonefiles) == 0:
-        logging.error('No zone files detected.  Shutting down.')
-        logging.error(zonefiledirectory)
-        print('No zone files detected.  Shutting down.')
-        print(zonefiledirectory)
-        exit(666)
-    if not args.onlydiff:
-        Parallel(n_jobs=usecpus)(
-            delayed(unzipfiles)(file) for file in zonefiles)  # Parallel unzipping because gzip is single-threaded.
-    zonefiles = os.listdir(zonefiledirectory)  # Running a second time in case we unzipped or diff'ed anything.
-    if not args.onlyunzip:
-        Parallel(n_jobs=usecpus)(
-            delayed(difffiles)(file) for file in zonefiles)  # Parallel diffing because diff is single-threaded.
-
-    zonefiles = os.listdir(zonefiledirectory)  # Running a third time in case we unzipped or diff'ed anything.
-    textfiles = 0
-    difffilecount = 0
-    for file in zonefiles:
-        if re.search('\.txt$', file):
-            textfiles += 1
-        elif re.search('\.diff$', file):
-            difffilecount += 1
-
-    logging.info('Available total zone files:')
-    logging.info(textfiles)
-    print(f'Available total zone files: %s' % textfiles)
-    logging.info('Available total diff files:')
-    logging.info(difffilecount)
-    print(f'Available total diff files: %s' % difffilecount)
-
-    totaltime = int(datetime.datetime.now().timestamp()) - exec_start_time
-    print(f'Total Time was {str(datetime.timedelta(seconds=totaltime))}.')
-    logging.info(f'Total Time was {str(datetime.timedelta(seconds=totaltime))}.')
-    logging.info('************Ending run.************')
-
-
-def unzipfiles(filename):
-    if not re.search('\.txt\.gz$', filename):
-        return
-    filewithpath = os.path.join(zonefiledirectory, filename)
-    unzipfilewithpath = re.sub('\.gz$', '', filewithpath)
-    oldunzipfilewithpath = unzipfilewithpath + ".old"
-    print(f'Unzipping %s.' % filewithpath)
-    if os.path.isfile(unzipfilewithpath):  # Backup existing file to .old
-        os.system('cp -u %s %s' % (unzipfilewithpath, oldunzipfilewithpath))
-    os.system(f'nice gunzip -kf %s' % filewithpath)  # Overwrites existing unzipped file and keeps the source .gz
-
-
-def difffiles(filename):
-    if not re.search('\.txt$', filename):
-        return
-    filewithpath = os.path.join(zonefiledirectory, filename)
-    oldfilewithpath = filewithpath + ".old"
-    difffilewithpath = re.sub('\.txt$', '', filewithpath) + '.diff'
-    print(f'Working on rdiffs for %s.' % filewithpath)
-    if os.path.isfile(oldfilewithpath):
-        print(f'We have an old version of %s so we will make a diff file of that now as %s.' %
-              (filewithpath, difffilewithpath))
-        os.system("nice comm --nocheck-order -13 %s %s > %s" % (oldfilewithpath, filewithpath, difffilewithpath))
-    else:
-        print(f'No old version of %s so we will use the full file as a diff file at %s.' %
-              (filewithpath, difffilewithpath))
-        os.system('cp -u %s %s' % (filewithpath, difffilewithpath))
-
-
-def checkzonefile(filename, searchword):
+def checkzonefile(filename):
     lastdomain = ""
     internalrows = 0
     global totalrows
     global matchdomains
-    if not re.search('\.(txt|diff)$', filename):
+    global searchphrases
+    if not re.search('\.(diff\.split[a-z]{2,7}|txt\.split[a-z]{2,7}|txt|diff)$', filename):
+        return
+    elif re.search(
+            '^(app|biz|club|com|dev|icu|info|link|live|net|online|org|page|shop|site|store|top|vip|wang|work|xyz)\.(txt|diff)$',
+            filename):
         return
     filewithpath = os.path.join(zonefiledirectory, filename)
-    logging.info(f'Searching {filewithpath} for {searchword}')
-    print(f'Searching {filewithpath} for {searchword}')
+    logging.info(f'Searching {filewithpath}')
+    print(f'Searching {filewithpath}')
     with open(filewithpath, 'rt') as f:
         for line in f:
             internalrows += 1
@@ -315,12 +246,12 @@ def checkzonefile(filename, searchword):
             # Regex is to check for the tld in the first field. It has only one phrase with a trailing dot.
             # last check is to make sure that we're not checking the same domain as the previous line.
             linearray[0] = linearray[0].rstrip('.')
-            if not re.search('^[a-z]*\.$', linearray[0]) and linearray[0] is not lastdomain and linearray[2] == "in" \
-                    and linearray[3] == "ns":
-                score = fuzz.partial_ratio(searchword, linearray[0])
-                if score > accuracy:
-                    print(linearray[0], score, searchword)
-                    matchdomains.append(linearray[0])
+            if not re.search('^[a-z]*\.$', linearray[0]) and linearray[2] == "in" and linearray[3] == "ns":
+                for searchword in searchphrases:
+                    score = fuzz.partial_ratio(searchword, linearray[0])
+                    if score > accuracy:
+                        print(linearray[0], score, searchword)
+                        matchdomains.append(linearray[0])
             lastdomain = linearray[0]
     totalrows.append(int(internalrows))
     return
